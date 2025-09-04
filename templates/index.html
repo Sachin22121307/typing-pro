@@ -1,71 +1,108 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Typing Trainer</title>
-<style>
-  body { font-family: Arial, sans-serif; padding: 20px; max-width: 700px; margin: auto; }
-  textarea { width: 100%; height: 150px; margin: 10px 0; }
-  button { padding: 12px 20px; font-size: 16px; cursor: pointer; }
-  #result { margin-top: 20px; font-size: 18px; }
-</style>
+  <meta charset="UTF-8" />
+  <title>Typing Trainer - Passage Manager</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #2c3e50; color: #ecf0f1; max-width: 700px; margin: 40px auto; }
+    h1 { color: #3498db; text-align: center; }
+    .card { background: #ecf0f1; color: #2c3e50; border-radius: 10px; padding: 2em; margin-bottom: 2em;}
+    .passage-list { margin-bottom: 2em; }
+    label { font-weight: bold; }
+    input, textarea { width: 100%; padding: 10px; font-size: 15px; margin-bottom: 1em; border-radius: 5px; border: 1px solid #ccc; }
+    button { background: #3498db; color: #fff; border: none; padding: 12px 24px; border-radius: 5px; font-size: 16px; cursor: pointer; }
+    button.alt { background: #e74c3c; }
+    button:hover { background: #217dbb; }
+    .actions > button { margin-right: 10px; }
+    .selected { background: #d0eafc; }
+  </style>
 </head>
 <body>
-  <h1>Professional Typing Trainer</h1>
-  <label for="original">Original text:</label>
-  <textarea id="original" placeholder="Paste the passage here"></textarea>
-
-  <label for="typed">Type the passage from memory:</label>
-  <textarea id="typed" placeholder="Type here"></textarea>
-
-  <button id="checkBtn">Check</button>
-
-  <div id="result"></div>
-
+  <h1>📚 Typing Passages Manager</h1>
+  <div class="card">
+    <div>
+      <label for="title">Passage Title</label>
+      <input type="text" id="title" placeholder="Enter passage title" />
+      <label for="body">Passage Body</label>
+      <textarea id="body" rows="4" placeholder="Enter passage body"></textarea>
+      <button onclick="addPassage()" id="addBtn">Add Passage</button>
+      <button onclick="updatePassage()" id="updateBtn" style="display:none;">Update Passage</button>
+      <button onclick="reset()" id="resetBtn" style="display:none;">Cancel Edit</button>
+    </div>
+  </div>
+  <div class="card passage-list">
+    <h2>Saved Passages</h2>
+    <ul id="passages"></ul>
+  </div>
   <script>
-    let startTime, timerRunning = false;
+    let current = null;
 
-    const originalEl = document.getElementById('original');
-    const typedEl = document.getElementById('typed');
-    const checkBtn = document.getElementById('checkBtn');
-    const resultDiv = document.getElementById('result');
-
-    typedEl.addEventListener('focus', () => {
-      if (!timerRunning) {
-        startTime = Date.now();
-        timerRunning = true;
-      }
-    });
-
-    checkBtn.addEventListener('click', async () => {
-      if (!timerRunning) {
-        alert('Please start typing first.');
-        return;
-      }
-      const original = originalEl.value.trim();
-      const typed = typedEl.value.trim();
-      if (!original || !typed) {
-        alert('Both fields are required.');
-        return;
-      }
-
-      const durationSec = (Date.now() - startTime) / 1000;
-      timerRunning = false;
-
-      const response = await fetch('/api/check', {
+    function loadPassages() {
+      fetch('/api/passages')
+        .then(r => r.json())
+        .then(data => {
+          const ul = document.getElementById('passages');
+          ul.innerHTML = '';
+          data.forEach(p => {
+            const li = document.createElement('li');
+            li.className = (current && current.id === p.id) ? 'selected' : '';
+            li.innerHTML = `<strong>${p.title}</strong> 
+              <div class="actions">
+                <button onclick="selectPassage(${p.id},'${p.title.replace(/'/g,"\\'")}',\`${p.body.replace(/`/g,"\\`")}\`)">Edit</button>
+                <button class="alt" onclick="deletePassage(${p.id})">Delete</button>
+              </div>`;
+            ul.appendChild(li);
+          });
+        });
+    }
+    function addPassage() {
+      const title = document.getElementById('title').value;
+      const body = document.getElementById('body').value;
+      fetch('/api/passages', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ original, typed, duration: durationSec })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body })
+      }).then(r => r.json()).then(res => {
+        if(res.error) alert(res.error);
+        reset(); loadPassages();
       });
-      const data = await response.json();
-
-      resultDiv.innerHTML = 
-        `WPM: ${data.wpm.toFixed(2)}<br>` +
-        `Accuracy: ${data.accuracy.toFixed(2)}%<br>` +
-        `Errors: ${data.errors}`;
-    });
+    }
+    function selectPassage(id, title, body) {
+      current = { id, title, body };
+      document.getElementById('title').value = title;
+      document.getElementById('body').value = body;
+      document.getElementById('addBtn').style.display = 'none';
+      document.getElementById('updateBtn').style.display = 'inline-block';
+      document.getElementById('resetBtn').style.display = 'inline-block';
+      loadPassages();
+    }
+    function updatePassage() {
+      if(!current) return;
+      const title = document.getElementById('title').value;
+      const body = document.getElementById('body').value;
+      fetch(`/api/passages/${current.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body })
+      }).then(r => r.json()).then(res => {
+        if(res.error) alert(res.error);
+        reset(); loadPassages();
+      });
+    }
+    function deletePassage(id) {
+      if(!confirm("Delete this passage?")) return;
+      fetch(`/api/passages/${id}`, { method: 'DELETE' })
+        .then(r => r.json()).then(res => { reset(); loadPassages(); });
+    }
+    function reset() {
+      current = null;
+      document.getElementById('title').value = '';
+      document.getElementById('body').value = '';
+      document.getElementById('addBtn').style.display = 'inline-block';
+      document.getElementById('updateBtn').style.display = 'none';
+      document.getElementById('resetBtn').style.display = 'none';
+    }
+    loadPassages();
   </script>
 </body>
 </html>
